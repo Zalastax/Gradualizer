@@ -1,6 +1,7 @@
 -module(gradualizer_fmt).
 -export([format_location/2, format_type_error/2]).
 
+-include("mna.hrl").
 -include("typelib.hrl").
 
 -define(FMT_LOCATION_DEFAULT, verbose).
@@ -43,6 +44,20 @@ format_location(Expr, verbose) ->
 format_type_error({type_error, Expression, ActualType, ExpectedType}, Opts)
   when is_tuple(Expression) ->
     format_type_error(Expression, ActualType, ExpectedType, Opts);
+format_type_error({undef, Type, Anno, Mna}, Opts) ->
+    Desc = case Type of
+      call         -> "Call to undefined function";
+      record       -> "Undefined record";
+      record_field -> "Undefined record field";
+      remote_type  -> "Undefined remote type";
+      user_type    -> "Undefined user type"
+    end,
+    io_lib:format(
+      "~s~s ~s~s~n",
+      [format_location(Anno, brief, Opts),
+       Desc,
+       format_mna(Mna),
+       format_location(Anno, verbose, Opts)]);
 format_type_error({nonexhaustive, Anno, Example}, Opts) ->
     io_lib:format(
       "~sNonexhaustive patterns~s~n"
@@ -50,63 +65,11 @@ format_type_error({nonexhaustive, Anno, Example}, Opts) ->
       [format_location(Anno, brief, Opts),
        format_location(Anno, verbose, Opts),
        Example]);
-format_type_error({call_undef, Anno, Func, Arity}, Opts) ->
+format_type_error({not_exported, remote_type, Anno, Mna}, Opts) ->
     io_lib:format(
-      "~sCall to undefined function ~p/~p~s~n",
+      "~sThe type ~s~s is not exported~n",
       [format_location(Anno, brief, Opts),
-       Func,
-       Arity,
-       format_location(Anno, verbose, Opts)]);
-format_type_error({call_undef, Anno, Module, Func, Arity}, Opts) ->
-    io_lib:format(
-      "~sCall to undefined function ~p:~p/~p~s~n",
-      [format_location(Anno, brief, Opts),
-       Module,
-       Func,
-       Arity,
-       format_location(Anno, verbose, Opts)]);
-format_type_error({undef, record, Anno, {Module, RecName}}, Opts) ->
-    io_lib:format("~sUndefined record ~p:~p~s~n",
-		  [format_location(Anno, brief, Opts),
-		   Module,
-		   RecName,
-		   format_location(Anno, verbose, Opts)]);
-format_type_error({undef, record, Anno, RecName}, Opts) ->
-    io_lib:format("~sUndefined record ~p~s~n",
-		  [format_location(Anno, brief, Opts),
-		   RecName,
-		   format_location(Anno, verbose, Opts)]);
-format_type_error({undef, record_field, FieldName}, Opts) ->
-    io_lib:format(
-      "~sUndefined record field ~s~s~n",
-      [format_location(FieldName, brief, Opts),
-       pp_expr(FieldName, Opts),
-       format_location(FieldName, verbose, Opts)]);
-format_type_error({undef, user_type, Anno, {Name, Arity}}, Opts) ->
-    io_lib:format(
-      "~sUndefined user type ~p/~p~s~n",
-      [format_location(Anno, brief, Opts),
-       Name,
-       Arity,
-       format_location(Anno, verbose, Opts)]);
-format_type_error({undef, Type, Anno, {Module, Name, Arity}}, Opts)
-  when Type =:= user_type; Type =:= remote_type ->
-    TypeS = case Type of user_type -> "user type"; remote_type -> "remote type" end,
-    io_lib:format(
-      "~sUndefined ~s ~p:~p/~p~s~n",
-      [format_location(Anno, brief, Opts),
-       TypeS,
-       Module,
-       Name,
-       Arity,
-       format_location(Anno, verbose, Opts)]);
-format_type_error({not_exported, remote_type, Anno, {Module, Name, Arity}}, Opts) ->
-    io_lib:format(
-      "~sThe type ~s:~s/~p~s is not exported~n",
-      [format_location(Anno, brief, Opts),
-       Module,
-       Name,
-       Arity,
+       format_mna(Mna),
        format_location(Anno, verbose, Opts)]);
 format_type_error({illegal_pattern, Pat}, Opts) ->
     io_lib:format("~sIllegal pattern ~s~s~n",
@@ -400,6 +363,18 @@ describe_expr({tuple, _, _})              -> "tuple";
 describe_expr({'try', _, _, _, _, _})     -> "try expression";
 describe_expr({var, _, _})                -> "variable";
 describe_expr(_)                          -> "expression".
+
+-spec format_mna(#mna{}) -> io_lib:chars().
+format_mna(#mna{module = Module, name = Name, arity = Arity}) ->
+  ModuleS = case Module of
+    undefined -> "";
+    _         -> io_lib:format("~p:", [Module])
+  end,
+  ArityS = case Arity of
+    undefined -> "";
+    _         -> io_lib:format("/~p", [Arity])
+  end,
+  io_lib:format("~s~p~s", [ModuleS, Name, ArityS]).
 
 pp_expr(Expr, Opts) ->
     case proplists:get_value(fmt_expr_fun, Opts) of

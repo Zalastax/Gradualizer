@@ -9,6 +9,7 @@
 %% still in an early stage
 -compile([export_all]).
 
+-include("mna.hrl").
 -include("typelib.hrl").
 
 -ifdef(OTP_RELEASE).
@@ -339,7 +340,7 @@ get_maybe_remote_record_fields(RecName, Anno, TEnv) ->
                 {ok, TypedRecordFields} ->
                     TypedRecordFields;
                 not_found ->
-                    throw({undef, record, Anno, {Module, RecName}})
+                    throw({undef, record, Anno, #mna{module=Module, name=RecName}})
             end;
         none ->
             %% Local record type
@@ -351,7 +352,7 @@ get_record_fields(RecName, Anno, #tenv{records = REnv}) ->
         #{RecName := Fields} ->
             Fields;
         _NotFound ->
-            throw({undef, record, Anno, RecName})
+            throw({undef, record, Anno, #mna{name=RecName}})
     end.
 
 %% Greatest lower bound
@@ -595,7 +596,7 @@ normalize({user_type, P, Name, Args} = Type, TEnv) ->
                 opaque ->
                     Type;
                 not_found ->
-                    throw({undef, user_type, P, {Module, Name, length(Args)}})
+                    throw({undef, user_type, P, #mna{module=Module, name=Name, arity=length(Args)}})
             end;
         none ->
             %% Local user-defined type
@@ -606,7 +607,7 @@ normalize({user_type, P, Name, Args} = Type, TEnv) ->
                     Type1 = typelib:substitute_type_vars(Type0, VarMap),
                     normalize(Type1, TEnv);
                 _NotFound ->
-                    throw({undef, user_type, P, {Name, length(Args)}})
+                    throw({undef, user_type, P, #mna{name=Name, arity=length(Args)}})
             end
     end;
 normalize({remote_type, P, [{atom, _, M}, {atom, _, N}, Args]}, TEnv) ->
@@ -616,9 +617,9 @@ normalize({remote_type, P, [{atom, _, M}, {atom, _, N}, Args]}, TEnv) ->
         opaque ->
             typelib:annotate_user_types(M, {user_type, P, N, Args});
         not_exported ->
-            throw({not_exported, remote_type, P, {M, N, length(Args)}});
+            throw({not_exported, remote_type, P, #mna{module=M, name=N, arity=length(Args)}});
         not_found ->
-            throw({undef, remote_type, P, {M, N, length(Args)}})
+            throw({undef, remote_type, P, #mna{module=M, name=N, arity=length(Args)}})
     end;
 normalize({op, _, _, _Arg} = Op, _TEnv) ->
     erl_eval:partial_eval(Op);
@@ -1586,7 +1587,7 @@ do_type_check_expr(Env, {'fun', P, {function, M, F, A}}) ->
                     Ty = bounded_type_list_to_type(Env#env.tenv, BoundedFunTypeList),
                     {Ty, #{}, constraints:empty()};
                 not_found ->
-                    throw({call_undef, P, M, F, A})
+                    throw({undef, call, P, #mna{module=Module, name=Function, arity=Arity}})
             end;
         _ -> %% Not enough information to check the type of the call.
             {type(any), #{}, constraints:empty()}
@@ -2359,7 +2360,7 @@ do_type_check_expr_in(Env, ResTy, Expr = {'fun', P, {function, M, F, A}}) ->
                         false -> throw({type_error, Expr, FunTypeList, ResTy})
                     end;
                 not_found ->
-                    throw({call_undef, P, Module, Function, Arity})
+                    throw({undef, call, P, #mna{module=Module, name=Function, arity=Arity}})
             end;
         _ -> % We don't have enough information to check the type.
             {#{}, constraints:empty()}
@@ -2908,7 +2909,7 @@ type_check_fun(_Env, {remote, P, {atom,_,Module}, {atom,_,Fun}}, Arity) ->
         {ok, Types} ->
             Types1 = [ typelib:annotate_user_types(Module, T) || T <- Types ],
             {Types1, #{}, constraints:empty()};
-        not_found   -> throw({call_undef, P, Module, Fun, Arity})
+        not_found   -> throw({undef, call, P, #mna{module=Module, name=Fun, arity=Arity}})
     end;
 type_check_fun(_Env, {remote, _, _Expr, _}, Arity)->
     % Call to an unknown module. Revert to dynamic types.
@@ -3081,7 +3082,7 @@ get_bounded_fun_type_list(Name, Arity, Env, P) ->
                         {ok, Types} ->
                             Types;
                         error ->
-                            throw({call_undef, P, Name, Arity})
+                            throw({undef, call, P, #mna{name=Name, arity=Arity}})
                     end
             end
     end.
@@ -3093,7 +3094,7 @@ get_imported_bounded_fun_type_list(Name, Arity, Env, P) ->
                 {ok, BoundedFunTypeList} ->
                     {ok, BoundedFunTypeList};
                 not_found ->
-                    throw({call_undef, P, Module, Name, Arity})
+                    throw({undef, call, P, #mna{module=Module, name=Name, arity=Arity}})
             end;
         error -> error
     end.
@@ -3933,8 +3934,8 @@ get_rec_field_index_and_type({atom, _, FieldName},
     {I, Ty};
 get_rec_field_index_and_type(FieldWithAnno, [_|RecFieldTypes], I) ->
     get_rec_field_index_and_type(FieldWithAnno, RecFieldTypes, I + 1);
-get_rec_field_index_and_type(FieldWithAnno, [], _) ->
-    throw({undef, record_field, FieldWithAnno}).
+get_rec_field_index_and_type({atom, _, FieldName} = Anno, [], _) ->
+    throw({undef, record_field, Anno, #mna{name=FieldName}}).
 
 %% Helper for finding the return type of record_info/2
 -spec get_record_info_type(erl_parse:abstract_expr(), #tenv{}) -> type().
